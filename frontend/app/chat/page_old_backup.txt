@@ -1,0 +1,2597 @@
+// Main chat interface - Production-ready with all features
+'use client';
+
+import { useEffect, useState, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useStore } from '@/lib/store';
+import { auth, chat as chatApi, files as filesApi, projects as projectsApi, research as researchApi, designs as designsApi, presentations as presentationsApi } from '@/lib/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import { FileChip } from '@/components/FileChip';
+import { FileUploadHandler } from '@/components/FileUploadHandler';
+import { Toast } from '@/components/Toast';
+import ArtifactPanel, { Artifact } from '@/components/ArtifactPanel';
+import { handleSSEStream } from '@/lib/sseHandler';
+import SourcesPanel from '@/components/SourcesPanel';
+import UnifiedComposerBar from '@/components/UnifiedComposerBar';
+
+// Disable static generation for this page
+export const dynamic = 'force-dynamic';
+
+const SidebarToggleIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 20 20" aria-hidden="true" className={className}>
+    <rect x="2" y="3" width="16" height="14" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    <rect x="7" y="3" width="1.8" height="14" fill="currentColor" />
+  </svg>
+);
+
+const PlusIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 20 20" aria-hidden="true" className={className}>
+    <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
+);
+
+const GearIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 20 20" aria-hidden="true" className={className}>
+    <path
+      d="M10 6.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm7.5 3.5c0-.34-.03-.67-.08-1l1.97-1.53-1.8-3.12-2.33.6a6.98 6.98 0 0 0-1.73-1L12.5 1h-5l-.53 2.95a6.98 6.98 0 0 0-1.73 1l-2.33-.6-1.8 3.12L2.08 9c-.05.33-.08.66-.08 1 0 .34.03.67.08 1l-1.97 1.53 1.8 3.12 2.33-.6c.52.44 1.09.8 1.73 1L7.5 19h5l.53-2.95c.64-.2 1.21-.56 1.73-1l2.33.6 1.8-3.12L17.92 11c.05-.33.08-.66.08-1Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+  </svg>
+);
+
+const LogoutIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 20 20" aria-hidden="true" className={className}>
+    <path d="M11 4h-5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M14 13l3-3-3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M8 10h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+
+const ConversationIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 20 20" aria-hidden="true" className={className}>
+    <path
+      d="M4 4h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H8l-4 3V5a1 1 0 0 1 1-1Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const CloseIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 20 20" aria-hidden="true" className={className}>
+    <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
+const CopyIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+);
+
+// Small pencil icon used for prompt editing affordance
+const EditIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 20h9" strokeLinecap="round" />
+    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const CheckIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const RefreshIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+  </svg>
+);
+
+const ChevronLeftIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M15 18l-6-6 6-6" />
+  </svg>
+);
+
+const ChevronRightIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M9 18l6-6-6-6" />
+  </svg>
+);
+
+export const CodeBlock = ({ children, className }: { children: string; className?: string }) => {
+  const [copied, setCopied] = useState(false);
+  const language = className?.replace('language-', '') || 'text';
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(children);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="group relative my-4 overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="sticky top-0 flex items-center justify-between border-b border-border bg-surface px-4 py-2">
+        <span className="text-xs text-text-secondary">{language}</span>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-subtle hover:text-text-primary"
+        >
+          {copied ? (
+            <>
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Copied!
+            </>
+          ) : (
+            <>
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              Copy code
+            </>
+          )}
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        <pre className="p-4">
+          <code className={`text-sm ${className}`}>{children}</code>
+        </pre>
+      </div>
+    </div>
+  );
+};
+
+// ChatGPT-style table wrapper with sticky header and copy button
+export const MarkdownTable = ({ children, ...props }: any) => {
+  const [copied, setCopied] = useState(false);
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  const handleCopy = () => {
+    if (!tableRef.current) return;
+
+    const rows = Array.from(tableRef.current.querySelectorAll('tr'));
+    const text = rows
+      .map((row) => {
+        const cells = Array.from(row.querySelectorAll('th, td'));
+        return cells.map((c) => (c.textContent || '').trim()).join('\t');
+      })
+      .join('\n');
+
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="my-6 overflow-hidden rounded-xl border border-border bg-background">
+      <div className="sticky top-0 z-10 flex items-center justify-end border-b border-border bg-surface px-4 py-2">
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-subtle hover:text-text-primary"
+        >
+          {copied ? (
+            <>
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Copied!
+            </>
+          ) : (
+            <>
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              Copy table
+            </>
+          )}
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        <table {...props} ref={tableRef} className="w-full border-collapse">
+          {children}
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// Shared markdown components configuration for consistent styling across chat and artifacts
+export const markdownComponents = {
+  code({ node, className, children, ...props }: any) {
+    const match = /language-(\w+)/.exec(className || '');
+    const isInline = !match;
+    return !isInline ? (
+      <CodeBlock className={className}>
+        {String(children).replace(/\n$/, '')}
+      </CodeBlock>
+    ) : (
+      <code className={`${className} rounded bg-surface px-1.5 py-0.5 text-xs`} {...props}>
+        {children}
+      </code>
+    );
+  },
+  table({ children, ...props }: any) {
+    return <MarkdownTable {...props}>{children}</MarkdownTable>;
+  },
+  thead({ children }: any) {
+    return <thead className="bg-surface-subtle sticky top-0 z-0">{children}</thead>;
+  },
+  tbody({ children }: any) {
+    return <tbody>{children}</tbody>;
+  },
+  tr({ children, ...props }: any) {
+    return (
+      <tr className="border-b border-border last-border-0" {...props}>
+        {children}
+      </tr>
+    );
+  },
+  th({ children, ...props }: any) {
+    return (
+      <th className="px-4 py-3 text-left text-xs font-semibold text-text-primary" {...props}>
+        {children}
+      </th>
+    );
+  },
+  td({ children, ...props }: any) {
+    return (
+      <td className="px-4 py-3 text-sm text-text-primary" {...props}>
+        {children}
+      </td>
+    );
+  },
+};
+
+function ChatPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const {
+    user,
+    conversations,
+    currentConversation,
+    setUser,
+    setConversations,
+    setCurrentConversation,
+    updateConversation,
+    addConversation,
+  } = useStore();
+  const [message, setMessage] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [streamedContent, setStreamedContent] = useState('');
+  const [models, setModels] = useState<any[]>([]);
+  const [selectedModel, setSelectedModel] = useState('auto');
+  const [showModelSelector, setShowModelSelector] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showComposerMenu, setShowComposerMenu] = useState(false);
+  const [selectedActions, setSelectedActions] = useState<{
+    think: boolean;
+    proSearch: boolean;
+    createDoc: boolean;
+    deepResearch: boolean;
+    createDesign: boolean;
+    createPresentation: boolean;
+  }>({
+    think: false,
+    proSearch: false,
+    createDoc: false,
+    deepResearch: false,
+    createDesign: false,
+    createPresentation: false,
+  });
+  const [isActionHovered, setIsActionHovered] = useState(false);
+  const isInitialMount = useRef(true);
+  const [isRestoring, setIsRestoring] = useState(true);
+  const [attachedFiles, setAttachedFiles] = useState<any[]>([]);
+  const [totalMemoryUsed, setTotalMemoryUsed] = useState(0);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [hoveredUserMessageId, setHoveredUserMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editedContent, setEditedContent] = useState('');
+  const [showRegenerateMenu, setShowRegenerateMenu] = useState<string | null>(null);
+  const [activeBranches, setActiveBranches] = useState<Record<string, number>>({});
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerateStreamedContent, setRegenerateStreamedContent] = useState('');
+  const [regeneratingForParentId, setRegeneratingForParentId] = useState<string | null>(null);
+  const [pendingEditedUserMessageId, setPendingEditedUserMessageId] = useState<string | null>(null);
+  const [modelSwitchNotification, setModelSwitchNotification] = useState<{
+    visible: boolean;
+    message: string;
+  }>({
+    visible: false,
+    message: '',
+  });
+  const [editingInProgress, setEditingInProgress] = useState(false);
+  const [conversationMenuOpen, setConversationMenuOpen] = useState<string | null>(null);
+  const [showAddToProjectMenu, setShowAddToProjectMenu] = useState<string | null>(null);
+  const [submenuPosition, setSubmenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [currentArtifact, setCurrentArtifact] = useState<Artifact | null>(null);
+  const [showArtifactPanel, setShowArtifactPanel] = useState(false);
+  const [streamingArtifact, setStreamingArtifact] = useState<Artifact | null>(null);
+  
+  // Deep Research state
+  const [activeResearchJob, setActiveResearchJob] = useState<string | null>(null);
+  const [researchProgress, setResearchProgress] = useState<string>('');
+  const [researchQueries, setResearchQueries] = useState<string[]>([]);
+  const [searchProgress, setSearchProgress] = useState<{query: string; index: number; total: number; status: 'pending' | 'searching' | 'complete'}[]>([]);
+  const researchEventSourceRef = useRef<EventSource | null>(null);
+  
+  // Sources panel state variables for web search citations
+  const [showSourcesPanel, setShowSourcesPanel] = useState(false);
+  const [currentSources, setCurrentSources] = useState<any[]>([]);
+  const [highlightedSourceIndex, setHighlightedSourceIndex] = useState<number | null>(null);
+  
+  // Pure data structures: conversation tree metadata (no visibility logic)
+  // This section contains data-layer functions that work with raw database facts
+  const [conversationTree, setConversationTree] = useState<{
+    assistantBranches: Record<string, string[]>; // userMessageId -> assistant messageIds for regenerate branches
+    userBranches: Record<string, string[]>; // parent assistantId (or root) -> user messageIds for edited prompt branches
+    branchCounts: Record<string, number>; // parentId -> number of branches
+    visibleMessageIds: Set<string>; // messageIds that should be displayed based on active branch selection
+  }>({
+    assistantBranches: {},
+    userBranches: {},
+    branchCounts: {},
+    visibleMessageIds: new Set(),
+  });
+  const modelSelectorRef = useRef<HTMLDivElement | null>(null);
+  const composerMenuRef = useRef<HTMLDivElement | null>(null);
+  const regenerateMenuRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // =======================================================================================
+  // PURE DATA LAYER: Build conversation tree from raw messages (no visibility logic)
+  // =======================================================================================
+  
+  /**
+   * Builds the complete conversation tree structure from raw message data.
+   * This function ONLY works with database facts and never considers visibility.
+   * It calculates branch counts and identifies which messages should be visible
+   * based on the current branch selection.
+   */
+  const buildConversationTree = (messages: any[], activeBranchSelection: Record<string, number>) => {
+    // Map of parent message id -> child assistant message ids
+    const assistantBranches: Record<string, string[]> = {};
+    // Map of parent message id -> child user message ids
+    const userBranches: Record<string, string[]> = {};
+    // Parent id -> number of branches available
+    const branchCounts: Record<string, number> = {};
+
+    messages.forEach((msg: any) => {
+      const parentId = msg.parentMessageId || 'root';
+
+      if (msg.role === 'assistant') {
+        if (!assistantBranches[parentId]) {
+          assistantBranches[parentId] = [];
+        }
+        assistantBranches[parentId].push(msg.messageId);
+      }
+
+      if (msg.role === 'user') {
+        if (!userBranches[parentId]) {
+          userBranches[parentId] = [];
+        }
+        userBranches[parentId].push(msg.messageId);
+      }
+    });
+
+    Object.keys(userBranches).forEach((parentId) => {
+      branchCounts[parentId] = userBranches[parentId].length;
+    });
+
+    Object.keys(assistantBranches).forEach((parentId) => {
+      branchCounts[parentId] = Math.max(branchCounts[parentId] || 0, assistantBranches[parentId].length);
+    });
+
+    if (userBranches['root']) {
+      branchCounts['root'] = userBranches['root'].length;
+    }
+
+    const visibleMessageIds = new Set<string>();
+
+    const traverseBranch = (messageId: string, role: 'user' | 'assistant') => {
+      visibleMessageIds.add(messageId);
+
+      if (role === 'user') {
+        const children = assistantBranches[messageId] || [];
+        if (children.length === 0) {
+          return;
+        }
+        const selectedIndex = readBranchSelection(messageId, children.length, activeBranchSelection);
+        const selectedAssistantId = children[selectedIndex];
+        if (selectedAssistantId) {
+          traverseBranch(selectedAssistantId, 'assistant');
+        }
+      } else {
+        const children = userBranches[messageId] || [];
+        if (children.length === 0) {
+          return;
+        }
+        const selectedIndex = readBranchSelection(messageId, children.length, activeBranchSelection);
+        const selectedUserId = children[selectedIndex];
+        if (selectedUserId) {
+          traverseBranch(selectedUserId, 'user');
+        }
+      }
+    };
+
+    const rootUserMessages = userBranches['root'] || [];
+    if (rootUserMessages.length > 0) {
+      const rootSelectedIndex = readBranchSelection('root', rootUserMessages.length, activeBranchSelection);
+      const selectedRootUser = rootUserMessages[rootSelectedIndex];
+      if (selectedRootUser) {
+        traverseBranch(selectedRootUser, 'user');
+      }
+    }
+
+    return {
+      assistantBranches,
+      userBranches,
+      branchCounts,
+      visibleMessageIds,
+    };
+  };
+
+  const readBranchSelection = (parentId: string, branchCount: number, selectionMap: Record<string, number>) => {
+    if (branchCount <= 0) return 0;
+    const stored = selectionMap[parentId];
+    if (typeof stored === 'number' && stored >= 0 && stored < branchCount) {
+      return stored;
+    }
+    return Math.max(0, branchCount - 1);
+  };
+
+  // =======================================================================================
+  // REBUILD TREE WHENEVER CONVERSATION OR BRANCH SELECTION CHANGES
+  // =======================================================================================
+  
+  useEffect(() => {
+    if (!currentConversation?.messages) return;
+    
+    const tree = buildConversationTree(currentConversation.messages, activeBranches);
+    setConversationTree(tree);
+  }, [currentConversation?.messages, activeBranches]);
+
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (showModelSelector && modelSelectorRef.current && !modelSelectorRef.current.contains(target)) {
+        setShowModelSelector(false);
+      }
+      if (showComposerMenu && composerMenuRef.current && !composerMenuRef.current.contains(target)) {
+        setShowComposerMenu(false);
+      }
+      if (showRegenerateMenu !== null && regenerateMenuRef.current && !regenerateMenuRef.current.contains(target)) {
+        setShowRegenerateMenu(null);
+      }
+      // Close conversation menu when clicking outside
+      if (conversationMenuOpen !== null) {
+        const clickedInsideMenu = target instanceof Element
+          ? target.closest('.conversation-menu-dropdown')
+          : null;
+        if (!clickedInsideMenu) {
+        setConversationMenuOpen(null);
+        setShowAddToProjectMenu(null);
+          setSubmenuPosition(null);
+        }
+      }
+      if (editingMessageId && editTextareaRef.current && !editTextareaRef.current.contains(target)) {
+        // Keeps the editing state until buttons are pressed intentionally
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showModelSelector, showComposerMenu, showRegenerateMenu, conversationMenuOpen, editingMessageId]);
+
+  const toggleSidebar = () => setSidebarCollapsed((prev) => !prev);
+
+  // File handling functions
+  const handleFilesSelected = (files: File[]) => {
+    const newFiles = files.map((file) => ({
+      id: `${Date.now()}-${Math.random()}`,
+      file,
+      status: 'pending',
+      uploadProgress: 0,
+    }));
+    setAttachedFiles((prev) => [...prev, ...newFiles]);
+    
+    // Update total memory
+    const additionalMemory = files.reduce((sum, f) => sum + f.size, 0);
+    setTotalMemoryUsed((prev) => prev + additionalMemory);
+    setShowComposerMenu(false);
+  };
+
+  const handleRemoveFile = (fileId: string) => {
+    const fileToRemove = attachedFiles.find((f) => f.id === fileId);
+    if (fileToRemove) {
+      setTotalMemoryUsed((prev) => prev - fileToRemove.file.size);
+    }
+    setAttachedFiles((prev) => prev.filter((f) => f.id !== fileId));
+  };
+
+  const calculateMemoryPercentage = (): number => {
+    const tierCapacity = {
+      free: 50 * 1024 * 1024,
+      tier5: 150 * 1024 * 1024,
+      tier10: 250 * 1024 * 1024,
+      tier15: 500 * 1024 * 1024,
+    };
+    const capacity = tierCapacity[user?.tier as keyof typeof tierCapacity] || tierCapacity.free;
+    return Math.min((totalMemoryUsed / capacity) * 100, 100);
+  };
+
+  const getMemoryColor = (): string => {
+    const percentage = calculateMemoryPercentage();
+    if (percentage <= 60) return 'bg-green-500';
+    if (percentage <= 85) return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const token = localStorage.getItem('token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    // Load user data
+    auth.getMe().then((res) => {
+      setUser(res.data.user);
+    }).catch(() => {
+      localStorage.removeItem('token');
+      router.push('/login');
+    });
+
+    // Load conversations and restore last active one (with fallback)
+    chatApi.getConversations().then(async (res) => {
+      const fetchedConversations = res.data.conversations;
+      setConversations(fetchedConversations);
+
+      // Check for conversationId in URL query parameter (from project page)
+      const urlConversationId = searchParams?.get('conversationId');
+      console.log('🔍 URL conversationId:', urlConversationId);
+      
+      // Priority: URL param > localStorage > first conversation
+      const savedId = localStorage.getItem('cz.currentConversationId');
+      const targetId = urlConversationId || 
+                       (savedId && fetchedConversations.some((c: any) => c._id === savedId) ? savedId : null) ||
+                       (fetchedConversations.length > 0 ? fetchedConversations[0]._id : null);
+      
+      console.log('🎯 Target conversation ID:', targetId);
+
+      if (targetId) {
+        // Optimistically set the current conversation from the list to avoid empty-state flicker
+        const optimistic = fetchedConversations.find((c: any) => c._id === targetId);
+        if (optimistic) {
+          setCurrentConversation(optimistic);
+        }
+        try {
+          const convRes = await chatApi.getConversation(targetId);
+          setCurrentConversation(convRes.data.conversation);
+          // Persist the active id so subsequent refreshes are consistent
+          localStorage.setItem('cz.currentConversationId', targetId);
+        } catch {
+          // If the saved id failed, drop it but don't clear again on this mount
+          if (savedId === targetId) localStorage.removeItem('cz.currentConversationId');
+        }
+      }
+
+      isInitialMount.current = false;
+      setIsRestoring(false);
+    });
+
+    // Load available models
+    chatApi.getModels().then((res) => {
+      setModels(res.data.models || []);
+    }).catch(err => {
+      console.error('Failed to load models:', err);
+    });
+
+    // Load projects for project selector
+    projectsApi.getProjects().then((res) => {
+      const projectsList = res.data || [];
+      console.log('✅ Loaded projects:', projectsList);
+      setProjects(projectsList);
+    }).catch(err => {
+      console.error('Failed to load projects:', err);
+    });
+  }, [router, setUser, setConversations, setCurrentConversation, searchParams]);
+
+  // Persist current conversation ID to localStorage (never clear on mount)
+  useEffect(() => {
+    if (typeof window === 'undefined' || isInitialMount.current) return;
+    if (currentConversation?.
+      _id) {
+      localStorage.setItem('cz.currentConversationId', currentConversation._id);
+    }
+  }, [currentConversation]);
+
+  // Load user's preferred model on mount
+  // This ensures the model dropdown reflects the user's saved preference across devices
+  useEffect(() => {
+    if (user?.preferredModelId) {
+      setSelectedModel(user.preferredModelId);
+    }
+  }, [user]);
+
+  // Cleanup Deep Research SSE connection on unmount or conversation change
+  useEffect(() => {
+    return () => {
+      if (researchEventSourceRef.current) {
+        researchEventSourceRef.current.close();
+        researchEventSourceRef.current = null;
+      }
+    };
+  }, [currentConversation?._id]);
+
+  const handleNewChat = async () => {
+    setCurrentConversation(null);
+    localStorage.removeItem('cz.currentConversationId');
+    setMessage('');
+    setStreamedContent('');
+    setSelectedActions({ think: false, proSearch: false, createDoc: false, deepResearch: false, createDesign: false, createPresentation: false });
+    setAttachedFiles([]);
+    setTotalMemoryUsed(0);
+    setCopiedMessageId(null);
+    setHoveredUserMessageId(null);
+    
+    // Close any active research
+    if (researchEventSourceRef.current) {
+      researchEventSourceRef.current.close();
+      researchEventSourceRef.current = null;
+    }
+    setActiveResearchJob(null);
+    setResearchProgress('');
+    setSearchProgress([]);
+    setResearchQueries([]);
+  };
+
+  // Handler to change model and persist to backend
+  // Saves user's model preference so it syncs across devices
+  const handleModelChange = async (newModelId: string) => {
+    setSelectedModel(newModelId);
+    
+    // Persist to backend if not 'auto' (auto is handled by backend rotation)
+    if (newModelId !== 'auto') {
+      try {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user/preferences`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('cz.authToken')}`,
+          },
+          body: JSON.stringify({ preferredModelId: newModelId }),
+        });
+      } catch (error) {
+        console.error('Failed to save model preference:', error);
+        // Don't show error to user - preference will still work for current session
+      }
+    }
+  };
+
+  // Handler function to add a conversation to a project
+  const handleAddToProject = async (conversationId: string, projectId: string) => {
+    try {
+      console.log('🔗 Adding conversation to project:', { conversationId, projectId });
+      await chatApi.updateConversation(conversationId, { projectId } as any);
+      // Refresh conversations to show updated project assignment
+      const res = await chatApi.getConversations();
+      setConversations(res.data.conversations || []);
+      setConversationMenuOpen(null);
+      setShowAddToProjectMenu(null);
+      setSubmenuPosition(null);
+      console.log('✅ Successfully added conversation to project');
+    } catch (error) {
+      console.error('❌ Failed to add conversation to project:', error);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!message.trim() || streaming) return;
+
+    // Auto-create conversation if none 
+    let activeConversation = currentConversation;
+    console.log('💬 Sending message to conversation:', activeConversation?._id);
+    
+    if (!activeConversation) {
+      try {
+        const res = await chatApi.createConversation();
+        const newConv = res.data.conversation;
+        
+        addConversation(newConv);
+        setCurrentConversation(newConv);
+        activeConversation = newConv;
+      } catch (error) {
+        console.error('Failed to create conversation:', error);
+        return;
+      }
+    }
+
+    if (!activeConversation) return;
+
+    const userMessage = message;
+    setMessage('');
+    setStreaming(true);
+    setStreamedContent('');
+    console.log('📤 Sending to API:', activeConversation._id);
+    
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '32px';
+    }
+
+    const timestamp = new Date().toISOString();
+    const conversationId = activeConversation._id;
+    const originalConversation = activeConversation;
+    const originalMessages = [...(activeConversation.messages || [])];
+
+    const parentAssistantId = getActiveAssistantParentId(originalMessages);
+    const userParentMessageId = parentAssistantId || undefined;
+
+    const pendingUserMessage = {
+      role: 'user',
+      content: userMessage,
+      createdAt: timestamp,
+      attachedFiles: attachedFiles.filter((f) => f.status === 'uploaded').map((f) => f.file),
+      parentMessageId: userParentMessageId,
+      // Assign a temporary ID so the optimistic branch render includes this prompt immediately
+      messageId: `pending-${timestamp}-${Math.random()}`,
+    } as any;
+
+    const optimisticConversation = {
+      ...activeConversation,
+      messages: [...(activeConversation.messages || []), pendingUserMessage],
+      updatedAt: timestamp,
+      lastMessageAt: timestamp,
+    };
+
+    setCurrentConversation(optimisticConversation);
+    updateConversation(optimisticConversation._id, {
+      messages: optimisticConversation.messages,
+      updatedAt: timestamp,
+      lastMessageAt: timestamp,
+    });
+
+    try {
+      // Upload files first if any are attached
+      if (attachedFiles.length > 0) {
+        try {
+          const filesToUpload = attachedFiles
+            .filter(f => f.status === 'pending' || f.status === 'uploading')
+            .map(f => f.file);
+
+          if (filesToUpload.length > 0) {
+            const fileRes = await filesApi.uploadFiles(conversationId, filesToUpload);
+            
+            // Update attached files status
+            setAttachedFiles((prev) =>
+              prev.map((f) =>
+                fileRes.data.files.find((uploaded: any) => uploaded.fileName === f.file.name)
+                  ? { ...f, status: 'uploaded' }
+                  : f
+              )
+            );
+          }
+        } catch (uploadError) {
+          console.error('File upload error:', uploadError);
+          // Continue with message even if file upload fails
+        }
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://chatzone-api-b8h3g0c4hydccrcy.eastus-01.azurewebsites.net'}/api/chat/conversations/${conversationId}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+          },
+          body: JSON.stringify({
+            content: userMessage,
+            model: selectedModel !== 'auto' ? selectedModel : undefined,
+            isProSearch: selectedActions.proSearch,
+            forceArtifact: selectedActions.createDoc,
+            attachedFileIds: attachedFiles.filter((f) => f.status === 'uploaded').map((f) => f.id),
+            parentMessageId: userParentMessageId,
+          }),
+        }
+      );
+
+      console.log('🌐 API Response status:', response.status);
+
+      // Use shared SSE handler to process the stream
+      await handleSSEStream(response, {
+        // Handle new content chunks from AI
+        onChunk: (content) => {
+          setStreamedContent((prev) => prev + content);
+        },
+
+        // Handle model auto-switch for Pro Search
+        onModelSwitched: (data) => {
+          setSelectedModel(data.modelId);
+          setModelSwitchNotification({
+            visible: true,
+            message: data.message,
+          });
+          // Auto-hide after 3 seconds
+          setTimeout(() => {
+            setModelSwitchNotification({ visible: false, message: '' });
+          }, 3000);
+        },
+
+        // Handle artifact streaming
+        onArtifactStart: (artifact) => {
+          setStreamingArtifact({
+            _id: 'streaming',
+            type: artifact.type as 'html' | 'code' | 'svg' | 'markdown' | 'react' | 'vue' | 'json' | 'csv' | 'mermaid',
+            title: artifact.title,
+            language: artifact.language,
+            content: '',
+            version: 0,
+            messageId: 'streaming',
+          });
+          setShowArtifactPanel(true);
+        },
+
+        onArtifactContent: (content) => {
+          setStreamingArtifact(prev => prev ? {
+            ...prev,
+            content: prev.content + content
+          } : null);
+        },
+
+        onArtifactComplete: () => {
+          // Artifact streaming complete (but not yet saved to DB)
+          // Keep showing the streaming artifact
+        },
+
+        onArtifactSaved: (artifact) => {
+          setCurrentArtifact(artifact);
+          setStreamingArtifact(null);
+        },
+
+        onArtifactCreated: (artifact) => {
+          // Legacy handler for non-streaming artifacts
+          setCurrentArtifact(artifact);
+                  setShowArtifactPanel(true);
+        },
+
+        // Handle response complete
+        onComplete: async (data) => {
+                  // Reload conversation to get full message history
+                  const convRes = await chatApi.getConversation(conversationId);
+                  const refreshedConversation = convRes.data.conversation;
+                  setCurrentConversation(refreshedConversation);
+                  updateConversation(refreshedConversation._id, {
+                    title: refreshedConversation.title,
+                    updatedAt: refreshedConversation.updatedAt,
+                    lastMessageAt: refreshedConversation.updatedAt,
+                    messages: refreshedConversation.messages,
+                  });
+                  setStreamedContent('');
+                  setAttachedFiles([]); // Clear attached files after successful send
+                  setTotalMemoryUsed(0); // Reset memory usage
+        },
+      });
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      alert('Failed to send message. Please try again.');
+      // Roll back optimistic message on failure
+      const rolledBackConversation = {
+        ...originalConversation,
+        messages: originalMessages,
+      } as any;
+      setCurrentConversation(rolledBackConversation);
+      updateConversation(conversationId, {
+        messages: originalMessages,
+        updatedAt: originalConversation.updatedAt,
+        lastMessageAt: originalConversation.lastMessageAt,
+      });
+    } finally {
+      setStreaming(false);
+    }
+  };
+
+  const handleCopyMessage = (content: string, messageId: string) => {
+    // Remove markdown formatting and citations for cleaner copy
+    const cleanText = content
+      .replace(/\[(\d+)\]/g, '') // Remove citations [1], [2], etc.
+      .replace(/#{1,6}\s/g, '') // Remove headers
+      .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
+      .replace(/\*(.+?)\*/g, '$1') // Remove italic
+      .replace(/`([^`]+)`/g, '$1'); // Remove inline code
+    
+    navigator.clipboard.writeText(cleanText);
+    setCopiedMessageId(messageId);
+    setTimeout(() => setCopiedMessageId(null), 2000); // Reset after 2 seconds
+  };
+
+  // Handle clicking on citation numbers in messages
+  // Opens sources panel and scrolls to highlighted source
+  const handleCitationClick = (citationNumber: number) => {
+    setShowSourcesPanel(true);
+    setHighlightedSourceIndex(citationNumber - 1); // Convert to 0-based index
+    
+    // Scroll to the citation after panel opens
+    setTimeout(() => {
+      const element = document.getElementById(`source-${citationNumber}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      
+      // Remove highlight after 2 seconds
+      setTimeout(() => setHighlightedSourceIndex(null), 2000);
+    }, 300); // Wait for panel animation
+  };
+
+  // Handle Deep Research - starts research job and listens for SSE progress updates
+  const handleStartDeepResearch = async () => {
+    if (!message.trim() || activeResearchJob) return;
+
+    // Auto-create conversation if none
+    let activeConversation = currentConversation;
+    if (!activeConversation) {
+      try {
+        const res = await chatApi.createConversation();
+        const newConv = res.data.conversation;
+        addConversation(newConv);
+        setCurrentConversation(newConv);
+        activeConversation = newConv;
+      } catch (error) {
+        console.error('Failed to create conversation:', error);
+        return;
+      }
+    }
+
+    if (!activeConversation) return;
+
+    const userMessage = message;
+    setMessage('');
+    setResearchProgress('Starting Deep Research...');
+    
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '32px';
+    }
+
+    try {
+      // Start research job
+      const startRes = await researchApi.startResearch({
+        conversationId: activeConversation._id,
+        userMessage,
+        modelId: selectedModel
+      });
+
+      const jobId = startRes.data.jobId;
+      setActiveResearchJob(jobId);
+      console.log('🔬 Started Deep Research job:', jobId);
+
+      // Open SSE connection for progress updates
+      const eventSource = researchApi.getResearchStatus(jobId);
+      researchEventSourceRef.current = eventSource;
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📡 Research event:', data.type);
+
+          switch (data.type) {
+            case 'connected':
+              setResearchProgress('Connected to research service...');
+              break;
+
+            case 'planning_start':
+              setResearchProgress('Creating research plan...');
+              break;
+
+            case 'plan_created':
+              setResearchProgress(`Research plan created (${data.queryCount} searches)`);
+              setResearchQueries(data.queries);
+              // Initialize search progress
+              setSearchProgress(data.queries.map((q: string, i: number) => ({
+                query: q,
+                index: i + 1,
+                total: data.queries.length,
+                status: 'pending' as const
+              })));
+              break;
+
+            case 'search_start':
+              setResearchProgress(`Searching: ${data.query}...`);
+              setSearchProgress(prev => prev.map(s =>
+                s.index === data.index ? { ...s, status: 'searching' as const } : s
+              ));
+              break;
+
+            case 'search_complete':
+              setSearchProgress(prev => prev.map(s =>
+                s.index === data.index ? { ...s, status: 'complete' as const } : s
+              ));
+              const completedCount = searchProgress.filter(s => s.status === 'complete').length + 1;
+              setResearchProgress(`Completed ${completedCount}/${data.total} searches`);
+              break;
+
+            case 'search_error':
+              console.error('Search error:', data.error);
+              break;
+
+            case 'searches_complete':
+              setResearchProgress(`All searches complete! Generating document...`);
+              break;
+
+            case 'generating_start':
+              setResearchProgress('Analyzing sources and generating comprehensive document...');
+              break;
+
+            case 'complete':
+              setResearchProgress('Research complete!');
+              // Show the artifact
+              if (data.artifact) {
+                setCurrentArtifact({
+                  _id: data.artifact._id,
+                  type: data.artifact.type,
+                  title: data.artifact.title,
+                  content: data.artifact.content,
+                  language: undefined,
+                  version: 1,
+                  messageId: '',
+                });
+                setShowArtifactPanel(true);
+                
+                // Store sources if available
+                if (data.artifact.sources) {
+                  setCurrentSources(data.artifact.sources);
+                }
+              }
+              
+              // Reload conversation to get the new message
+              setTimeout(async () => {
+                try {
+                  const convRes = await chatApi.getConversation(activeConversation._id);
+                  setCurrentConversation(convRes.data.conversation);
+                  updateConversation(activeConversation._id, convRes.data.conversation);
+                } catch (error) {
+                  console.error('Failed to reload conversation:', error);
+                }
+              }, 500);
+              
+              // Close connection and cleanup
+              eventSource.close();
+              setActiveResearchJob(null);
+              setSearchProgress([]);
+              setResearchQueries([]);
+              setTimeout(() => setResearchProgress(''), 3000);
+              break;
+
+            case 'error':
+              setResearchProgress(`Error: ${data.error}`);
+              eventSource.close();
+              setActiveResearchJob(null);
+              setSearchProgress([]);
+              setResearchQueries([]);
+              setTimeout(() => setResearchProgress(''), 5000);
+              break;
+
+            case 'cancelled':
+              setResearchProgress('Research cancelled');
+              eventSource.close();
+              setActiveResearchJob(null);
+              setSearchProgress([]);
+              setResearchQueries([]);
+              setTimeout(() => setResearchProgress(''), 3000);
+              break;
+          }
+        } catch (error) {
+          console.error('Failed to parse SSE message:', error);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error('SSE connection error:', error);
+        setResearchProgress('Connection error - please try again');
+        eventSource.close();
+        setActiveResearchJob(null);
+        setSearchProgress([]);
+        setResearchQueries([]);
+        setTimeout(() => setResearchProgress(''), 5000);
+      };
+
+    } catch (error: any) {
+      console.error('Deep Research error:', error);
+      setResearchProgress(`Failed to start research: ${error.response?.data?.error || error.message}`);
+      setActiveResearchJob(null);
+      setTimeout(() => setResearchProgress(''), 5000);
+    }
+  };
+
+  // Cancel active research job
+  const handleCancelResearch = async () => {
+    if (!activeResearchJob) return;
+
+    try {
+      await researchApi.cancelResearch(activeResearchJob);
+      if (researchEventSourceRef.current) {
+        researchEventSourceRef.current.close();
+        researchEventSourceRef.current = null;
+      }
+      setActiveResearchJob(null);
+      setResearchProgress('Research cancelled');
+      setSearchProgress([]);
+      setResearchQueries([]);
+      setTimeout(() => setResearchProgress(''), 3000);
+    } catch (error) {
+      console.error('Failed to cancel research:', error);
+    }
+  };
+
+  const handleRegenerateMessage = async (messageIndex: number, directive: string) => {
+    if (!currentConversation || regenerating) return;
+
+    // Find the parent message ID for this assistant message
+    const messages = currentConversation.messages || [];
+    const targetMessage = messages[messageIndex];
+    
+    if (!targetMessage || !targetMessage.parentMessageId) {
+      console.error('Cannot regenerate: message has no parent');
+      return;
+    }
+
+    const parentMessageId = targetMessage.parentMessageId;
+
+    // Optimistically clear any descendant messages tied to this assistant branch before streaming
+    const descendantIds = new Set<string>();
+    const stack: string[] = [];
+
+    if (targetMessage.messageId) {
+      stack.push(targetMessage.messageId);
+    }
+
+    while (stack.length > 0) {
+      const currentParentId = stack.pop();
+      if (!currentParentId) continue;
+
+      messages.forEach((msg: any) => {
+        if (msg.parentMessageId === currentParentId && msg.messageId) {
+          if (!descendantIds.has(msg.messageId)) {
+            descendantIds.add(msg.messageId);
+            stack.push(msg.messageId);
+          }
+        }
+      });
+    }
+
+    if (descendantIds.size > 0) {
+      const prunedMessages = messages.filter((msg: any) => {
+        if (!msg.messageId) return true;
+        if (descendantIds.has(msg.messageId)) return false;
+        return true;
+      });
+
+      const removedUserIds: string[] = [];
+      descendantIds.forEach((id) => {
+        const removedMsg = messages.find((msg: any) => msg.messageId === id);
+        if (removedMsg?.role === 'user' && removedMsg.messageId) {
+          removedUserIds.push(removedMsg.messageId);
+        }
+      });
+
+      const updatedConversation = {
+        ...currentConversation,
+        messages: prunedMessages,
+      };
+
+      setCurrentConversation(updatedConversation);
+      updateConversation(updatedConversation._id, {
+        messages: prunedMessages,
+        updatedAt: updatedConversation.updatedAt,
+      });
+
+      if (removedUserIds.length > 0) {
+        setActiveBranches((prev) => {
+          const next = { ...prev };
+          removedUserIds.forEach((userId) => {
+            if (userId in next) {
+              delete next[userId];
+            }
+          });
+          return next;
+        });
+      }
+    }
+
+    setShowRegenerateMenu(null);
+    setRegenerating(true);
+    setRegenerateStreamedContent('');
+    setRegeneratingForParentId(parentMessageId);
+
+    const conversationId = currentConversation._id;
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://chatzone-api-b8h3g0c4hydccrcy.eastus-01.azurewebsites.net'}/api/chat/conversations/${conversationId}/regenerate/${messageIndex}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+          },
+          body: JSON.stringify({
+            model: selectedModel !== 'auto' ? selectedModel : undefined,
+            directive,
+          }),
+        }
+      );
+
+      // Use shared SSE handler to process the stream
+      await handleSSEStream(response, {
+        // Handle new content chunks from AI
+        onChunk: (content) => {
+          setRegenerateStreamedContent((prev) => prev + content);
+        },
+
+        // Handle pruned descendants (old branches being removed)
+        onPrunedDescendants: (data) => {
+                  if (Array.isArray(data.removedUserMessageIds) && data.removedUserMessageIds.length > 0) {
+                    setActiveBranches((prev) => {
+                      const next = { ...prev };
+                      data.removedUserMessageIds.forEach((id: string) => {
+                        if (id in next) {
+                          delete next[id];
+                        }
+                      });
+                      return next;
+                    });
+                  }
+        },
+
+        // Handle response complete
+        onComplete: async (data) => {
+                  // Reload conversation to get updated branch data
+                  const convRes = await chatApi.getConversation(conversationId);
+                  const refreshedConversation = convRes.data.conversation;
+                  setCurrentConversation(refreshedConversation);
+                  updateConversation(refreshedConversation._id, {
+                    messages: refreshedConversation.messages,
+                    updatedAt: refreshedConversation.updatedAt,
+                  });
+
+                  // Set active branch to the newly regenerated one
+                  if (data.branchMetadata && data.branchMetadata.parentMessageId) {
+                    setActiveBranches((prev) => ({
+                      ...prev,
+                      [data.branchMetadata.parentMessageId]: data.branchMetadata.currentBranchIndex,
+                    }));
+                  }
+
+                  setRegenerateStreamedContent('');
+                  setRegeneratingForParentId(null);
+        },
+
+        // Handle errors
+        onError: (error) => {
+          console.error('Regenerate error:', error);
+          alert(`Failed to regenerate: ${error}`);
+                  setRegeneratingForParentId(null);
+        },
+      });
+    } catch (error) {
+      console.error('Failed to regenerate message:', error);
+      alert('Failed to regenerate message. Please try again.');
+      setRegeneratingForParentId(null);
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const handleBranchChange = (parentMessageId: string, branchIndexValue: number) => {
+    setActiveBranches((prev) => ({
+      ...prev,
+      [parentMessageId]: branchIndexValue,
+    }));
+  };
+
+  const resetParentBranchSelection = (parentMessageId: string) => {
+    setActiveBranches((prev) => {
+      if (!(parentMessageId in prev)) {
+        return prev;
+      }
+
+      const next = { ...prev };
+      delete next[parentMessageId];
+      return next;
+    });
+  };
+
+  // =======================================================================================
+  // SIMPLIFIED VISIBILITY FUNCTIONS: Use pre-built tree data
+  // =======================================================================================
+  
+  /**
+   * Returns all branch messageIds for a user message from the pre-built tree.
+   * This is a pure data lookup with no logic.
+   */
+  function getAssistantBranches(parentMessageId?: string): string[] {
+    if (!parentMessageId) return [];
+    return conversationTree.assistantBranches[parentMessageId] || [];
+  }
+
+  function getUserBranches(parentMessageId?: string | null): string[] {
+    if (!parentMessageId) {
+      return conversationTree.userBranches['root'] || [];
+    }
+    return conversationTree.userBranches[parentMessageId] || [];
+  }
+
+  /**
+   * Returns the selected branch index for a parent node.
+   * This is a simple lookup with default fallback.
+   */
+  function getSelectedBranchIndex(parentMessageId: string | undefined, branchCount: number): number {
+    if (!parentMessageId || branchCount <= 0) return 0;
+
+    return readBranchSelection(parentMessageId, branchCount, activeBranches);
+  }
+
+  /**
+   * Checks if a message should be visible based on the pre-built tree.
+   * This is a simple Set lookup with no recursive logic.
+   */
+  function isMessageVisible(messageId?: string): boolean {
+    if (!messageId) return false;
+    return conversationTree.visibleMessageIds.has(messageId);
+  }
+
+  /**
+   * Walks backwards through visible messages to find the last assistant message.
+   * This is used to determine the parent for new user messages.
+   */
+  function getActiveAssistantParentId(allMessages: any[]): string | undefined {
+    for (let idx = allMessages.length - 1; idx >= 0; idx -= 1) {
+      const msg = allMessages[idx];
+      if (!msg || msg.role !== 'assistant' || !msg.messageId) continue;
+      
+      if (isMessageVisible(msg.messageId)) {
+        return msg.messageId;
+      }
+    }
+    return undefined;
+  }
+
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('cz.currentConversationId');
+    }
+    router.push('/');
+  };
+
+  const handleEditMessage = async (message: any) => {
+    if (!currentConversation || !message) return;
+
+    const conversationId = currentConversation._id;
+    const messageId = message.messageId;
+    const parentMessageId = message.parentMessageId || 'root';
+
+    setEditingInProgress(true);
+    setPendingEditedUserMessageId(messageId);
+    setEditingMessageId(null);
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://chatzone-api-b8h3g0c4hydccrcy.eastus-01.azurewebsites.net'}/api/chat/conversations/${conversationId}/edit-message/${messageId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+          },
+          body: JSON.stringify({
+            content: editedContent,
+            model: selectedModel !== 'auto' ? selectedModel : undefined,
+          }),
+        }
+      );
+
+      // Use shared SSE handler to process the stream
+      await handleSSEStream(response, {
+        // Handle user branch created event
+        onUserBranchCreated: (data) => {
+                const existingMessages = currentConversation?.messages || [];
+                const nextMessages = [...existingMessages, data.userMessage];
+                const updatedConversation = {
+                  ...currentConversation!,
+                  messages: nextMessages,
+                };
+
+                setCurrentConversation(updatedConversation);
+                updateConversation(updatedConversation._id, { messages: nextMessages });
+
+                setActiveBranches((prevSelection) => ({
+                  ...prevSelection,
+                  [parentMessageId]: data.branchMetadata.currentBranchIndex,
+                }));
+
+                setPendingEditedUserMessageId(data.userMessage.messageId);
+        },
+
+        // Handle response complete
+        onComplete: async (data) => {
+                const convRes = await chatApi.getConversation(conversationId);
+                const refreshedConversation = convRes.data.conversation;
+                setCurrentConversation(refreshedConversation);
+                updateConversation(refreshedConversation._id, {
+                  messages: refreshedConversation.messages,
+                  updatedAt: refreshedConversation.updatedAt,
+                });
+
+                if (data.branchMetadata && data.branchMetadata.parentMessageId !== undefined) {
+                  const branchParentId = data.branchMetadata.parentMessageId || 'root';
+                  setActiveBranches((prev) => ({
+                    ...prev,
+                    [branchParentId]: data.branchMetadata.currentBranchIndex,
+                    [data.branchMetadata.newUserMessageId]: 0,
+                  }));
+
+                  setPendingEditedUserMessageId(data.branchMetadata.newUserMessageId);
+                }
+
+                setEditingInProgress(false);
+                setEditedContent('');
+        },
+
+        // Handle errors
+        onError: (error) => {
+          console.error('Edit error:', error);
+          alert(`Failed to edit prompt: ${error}`);
+                setEditingInProgress(false);
+                setPendingEditedUserMessageId(null);
+        },
+      });
+    } catch (error) {
+      console.error('Failed to edit message:', error);
+      alert('Failed to edit prompt. Please try again.');
+      setEditingInProgress(false);
+      setPendingEditedUserMessageId(null);
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-text-primary">
+        <div className="text-sm text-text-secondary">Loading your workspace…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background text-text-primary">
+      {/* Artifact Panel */}
+      {showArtifactPanel && (streamingArtifact || currentArtifact) && (
+        <ArtifactPanel
+          artifact={streamingArtifact || currentArtifact}
+          isStreaming={!!streamingArtifact}
+          onClose={() => {
+            setShowArtifactPanel(false);
+            setStreamingArtifact(null);
+          }}
+          conversationId={currentConversation?._id || ''}
+        />
+      )}
+
+      {/* Sources Panel - Web Search Citations */}
+      {showSourcesPanel && currentSources.length > 0 && (
+        <SourcesPanel
+          sources={currentSources}
+          highlightedIndex={highlightedSourceIndex}
+          onClose={() => setShowSourcesPanel(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div
+        className={`flex flex-col border-r border-border bg-surface transition-all duration-200 ease-out ${
+          sidebarCollapsed ? 'w-16' : 'w-72'
+        }`}
+      >
+        <div className="flex items-center border-b border-border px-3 py-3">
+          <button
+            onClick={() => (sidebarCollapsed ? toggleSidebar() : undefined)}
+            className="group relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white transition-colors"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Workspace home'}
+          >
+            <span className={`${sidebarCollapsed ? 'opacity-100 group-hover:opacity-0' : 'opacity-100'} transition-opacity duration-150`}>CZ</span>
+            <SidebarToggleIcon
+              className={`absolute h-4 w-4 transition-opacity duration-150 ${
+                sidebarCollapsed ? 'opacity-0 group-hover:opacity-100' : 'opacity-0'
+              }`}
+            />
+          </button>
+          {!sidebarCollapsed && (
+            <div className="ml-3">
+              <div className="text-sm font-semibold">ChatZone.ai</div>
+              <div className="text-[11px] uppercase tracking-wide text-text-secondary">{user.tier.toUpperCase()} plan</div>
+            </div>
+          )}
+          {!sidebarCollapsed && (
+            <button
+              onClick={toggleSidebar}
+              className="ml-auto flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-secondary hover:border-text-secondary hover:text-text-primary"
+              aria-label="Collapse sidebar"
+            >
+              <SidebarToggleIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <div className={`px-3 py-2 ${sidebarCollapsed ? 'flex justify-center' : ''}`}>
+          <button
+            onClick={() => router.push('/projects')}
+            className={`flex items-center rounded-lg border border-border text-text-primary hover:bg-surface-subtle ${
+              sidebarCollapsed ? 'h-10 w-10 justify-center' : 'w-full px-4 py-3 text-sm font-semibold'
+            }`}
+          >
+            {sidebarCollapsed ? (
+              <svg className="h-4 w-4" viewBox="0 0 20 20" aria-hidden="true">
+                <path
+                  d="M2 4a2 2 0 0 1 2-2h4.586a1 1 0 0 1 .707.293l1.414 1.414A1 1 0 0 0 11.414 4H16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              '📂 Projects'
+            )}
+          </button>
+        </div>
+
+        <div className={`px-3 py-2 ${sidebarCollapsed ? 'flex justify-center' : ''}`}>
+          <button
+            onClick={() => router.push('/designs')}
+            className={`flex items-center rounded-lg border border-border text-text-primary hover:bg-surface-subtle ${
+              sidebarCollapsed ? 'h-10 w-10 justify-center' : 'w-full px-4 py-3 text-sm font-semibold'
+            }`}
+          >
+            {sidebarCollapsed ? (
+              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <rect x="2" y="2" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.4" />
+                <path d="M2 8h16M8 2v16" stroke="currentColor" strokeWidth="1.4" />
+              </svg>
+            ) : (
+              '🎨 Designs'
+            )}
+          </button>
+        </div>
+
+        <div className={`px-3 py-2 ${sidebarCollapsed ? 'flex justify-center' : ''}`}>
+          <button
+            onClick={() => router.push('/presentations')}
+            className={`flex items-center rounded-lg border border-border text-text-primary hover:bg-surface-subtle ${
+              sidebarCollapsed ? 'h-10 w-10 justify-center' : 'w-full px-4 py-3 text-sm font-semibold'
+            }`}
+          >
+            {sidebarCollapsed ? (
+              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <rect x="3" y="3" width="14" height="11" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                <path d="M10 14v3M7 17h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+            ) : (
+              '📊 Presentations'
+            )}
+          </button>
+        </div>
+
+        <div className={`px-3 py-4 ${sidebarCollapsed ? 'flex justify-center' : ''}`}>
+          <button
+            onClick={handleNewChat}
+            className={`flex items-center justify-center rounded-lg bg-accent text-white shadow-card transition-transform hover:-translate-y-0.5 ${
+              sidebarCollapsed ? 'h-10 w-10' : 'w-full px-4 py-3 text-sm font-semibold'
+            }`}
+          >
+            {sidebarCollapsed ? <PlusIcon className="h-4 w-4" /> : '+ New chat'}
+          </button>
+        </div>
+
+        <div className={`flex-1 overflow-y-auto pb-4 ${sidebarCollapsed ? 'px-0.5' : 'px-3'}`}>
+          {conversations.map((conv) => (
+            <div key={conv._id} className="relative group mb-2">
+            <button
+              onClick={() => {
+                chatApi.getConversation(conv._id).then((res) => {
+                  setCurrentConversation(res.data.conversation);
+                });
+              }}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm transition-colors ${
+                currentConversation?._id === conv._id
+                  ? 'bg-surface-subtle border border-border'
+                  : 'hover:bg-surface-subtle'
+              } ${sidebarCollapsed ? 'justify-center px-1 py-2' : ''}`}
+            >
+              <ConversationIcon className={`h-4 w-4 text-text-secondary`} />
+              {!sidebarCollapsed && (
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-text-primary">{conv.title}</div>
+                  <div className="text-xs text-text-secondary">{new Date(conv.updatedAt).toLocaleDateString()}</div>
+                </div>
+              )}
+            </button>
+              
+              {/* 3-dot menu button - only visible on hover and when sidebar is not collapsed */}
+              {!sidebarCollapsed && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConversationMenuOpen(conversationMenuOpen === conv._id ? null : conv._id);
+                  }}
+                  className="absolute right-2 top-3 opacity-0 group-hover:opacity-100 p-1 hover:bg-surface rounded transition-opacity"
+                  title="More options"
+                >
+                  <span className="text-text-secondary">⋮</span>
+                </button>
+              )}
+              
+              {/* Dropdown menu for conversation options */}
+              {conversationMenuOpen === conv._id && !sidebarCollapsed && (
+                <div className="conversation-menu-dropdown absolute right-2 top-12 w-48 rounded-lg border border-border bg-background shadow-lg z-20">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setSubmenuPosition({
+                        top: rect.top,
+                        left: rect.right + 8,
+                      });
+                      setShowAddToProjectMenu(showAddToProjectMenu === conv._id ? null : conv._id);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-surface-subtle text-text-primary flex items-center justify-between"
+                  >
+                    <span>Add to project</span>
+                    <span className="text-text-secondary">›</span>
+                  </button>
+                  
+                  {/* Sub-menu for project selection */}
+                  {showAddToProjectMenu === conv._id && submenuPosition && (
+                    <div 
+                      className="fixed w-48 rounded-lg border border-border bg-background shadow-lg z-50" 
+                      style={{ 
+                        top: `${submenuPosition.top}px`, 
+                        left: `${submenuPosition.left}px` 
+                      }}
+                    >
+                      {projects.length > 0 ? (
+                        projects.map((project) => (
+                          <button
+                            key={project._id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddToProject(conv._id, project._id);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-surface-subtle text-text-primary"
+                          >
+                            {project.name}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-2 text-sm text-text-secondary">No projects available</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className={`border-t border-border ${sidebarCollapsed ? 'px-2 py-3' : 'p-4'}`}>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white">
+              {user.name[0].toUpperCase()}
+            </div>
+            {!sidebarCollapsed && (
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{user.name}</div>
+                <div className="truncate text-xs text-text-secondary">{user.email}</div>
+              </div>
+            )}
+          </div>
+          <div className={`mt-3 flex ${sidebarCollapsed ? 'flex-col gap-2' : 'gap-2'}`}>
+            <button
+              onClick={() => router.push('/settings')}
+              className={`rounded-lg border border-border text-xs font-medium text-text-primary hover:border-text-secondary ${
+                sidebarCollapsed ? 'flex h-9 w-full items-center justify-center' : 'flex-1 px-3 py-2'
+              }`}
+              title="Settings"
+            >
+              {sidebarCollapsed ? <GearIcon className="h-4 w-4" /> : 'Settings'}
+            </button>
+            <button
+              onClick={handleLogout}
+              className={`rounded-lg border border-border text-xs text-text-secondary hover:border-text-secondary ${
+                sidebarCollapsed ? 'flex h-9 w-full items-center justify-center' : 'px-3 py-2'
+              }`}
+              title="Logout"
+            >
+              {sidebarCollapsed ? <LogoutIcon className="h-4 w-4" /> : 'Logout'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col py-2">
+        <div className="flex items-center justify-between px-6 pb-2">
+          <div className="flex items-center gap-3">
+            <div className="relative" ref={modelSelectorRef}>
+            <button
+              onClick={() => setShowModelSelector(!showModelSelector)}
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium hover:border-text-secondary"
+              type="button"
+            >
+              <span>🤖</span>
+              <span>
+                {selectedModel === 'auto'
+                  ? 'Auto'
+                  : models.find((m) => m._id === selectedModel)?.displayName ||
+                    models.find((m) => m._id === selectedModel)?.name ||
+                    models.find((m) => m._id === selectedModel)?.modelId ||
+                    'Select model'}
+              </span>
+              <span className="text-text-secondary">▼</span>
+            </button>
+
+            {/* Model Switch Notification Popup */}
+            {modelSwitchNotification.visible && (
+              <div className="absolute left-0 top-full z-20 mt-2 animate-fade-in-out">
+                <div className="rounded-lg border border-purple-500 bg-purple-900 bg-opacity-90 px-4 py-2.5 shadow-lg">
+                  <div className="flex items-center gap-2 text-sm text-white">
+                    <span className="text-lg">🧠</span>
+                    <span>{modelSwitchNotification.message}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showModelSelector && (
+              <div className="absolute left-0 top-full z-10 mt-2 w-64 overflow-hidden rounded-xl border border-border bg-background shadow-card">
+                <button
+                  onClick={() => {
+                    handleModelChange('auto');
+                    setShowModelSelector(false);
+                  }}
+                  className="block w-full px-4 py-3 text-left text-sm hover:bg-surface-subtle"
+                  type="button"
+                >
+                  <div className="font-medium text-text-primary">Auto</div>
+                  <div className="text-xs text-text-secondary">Best model for your tier</div>
+                </button>
+                {models.map((model) => (
+                  <button
+                    key={model._id}
+                    onClick={() => {
+                      handleModelChange(model._id);
+                      setShowModelSelector(false);
+                    }}
+                    className="block w-full px-4 py-3 text-left text-sm hover:bg-surface-subtle"
+                    type="button"
+                  >
+                    <div className="font-medium text-text-primary">
+                      {model.displayName || model.name || model.modelId}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          </div>
+
+          <div className="rounded-full border border-border bg-surface px-4 py-1 text-xs font-medium text-text-secondary">
+            ⚡ {user.proRepliesCount?.total || 0} Pro replies
+          </div>
+        </div>
+
+        {/* Calculate if we have active conversation - determines composer position */}
+        {(isRestoring || streaming || streamedContent || ((currentConversation?.messages?.length ?? 0) > 0)) ? (
+          <>
+            <div className={`relative flex flex-1 flex-col overflow-hidden transition-all duration-300 ${showArtifactPanel ? 'mr-[60%]' : ''}`}>
+              <div className="flex-1 overflow-y-auto overflow-x-hidden bg-background px-3 py-4 pb-32">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+                  {(() => {
+                    const messages = currentConversation?.messages || [];
+                    const renderedPairs: React.JSX.Element[] = [];
+                    let i = 0;
+
+                    while (i < messages.length) {
+                      const msg = messages[i];
+
+                      if (msg.role === 'user') {
+                        const userMessageId = msg.messageId;
+                        const userBranchParentId = msg.parentMessageId || 'root';
+
+                        if (!isMessageVisible(userMessageId)) {
+                          i++;
+                          continue;
+                        }
+
+                        const userBranches = getUserBranches(userBranchParentId);
+                        const userBranchCount = userBranches.length;
+                        const userBranchIndex = userBranches.findIndex((branchId) => branchId === userMessageId);
+                        const selectedUserBranchIndex = getSelectedBranchIndex(userBranchParentId, userBranchCount);
+                        const userBranchLabel = `${selectedUserBranchIndex + 1} / ${userBranchCount || 1}`;
+                        const isEditing = editingMessageId === userMessageId;
+
+                        renderedPairs.push(
+                          <div
+                            key={`user-${userMessageId}`}
+                          className="group flex flex-col items-end gap-2"
+                            onMouseEnter={() => setHoveredUserMessageId(userMessageId)}
+                            onMouseLeave={() => setHoveredUserMessageId(null)}
+                          >
+                            <div className="flex items-start gap-3 max-w-2xl">
+                              <div className="flex flex-col items-end gap-1">
+                                <div className="rounded-2xl bg-surface-subtle px-5 py-3 text-sm text-text-primary max-w-2xl">
+                                  {isEditing ? (
+                                    <div className="flex flex-col gap-3">
+                                      <textarea
+                                        ref={editTextareaRef}
+                                        value={editedContent}
+                                        onChange={(e) => setEditedContent(e.target.value)}
+                                        className="w-full resize-y rounded-xl border border-border bg-background px-4 py-3 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+                                        rows={Math.max(3, Math.min(12, editedContent.split('\n').length + 1))}
+                                      />
+                                      <div className="flex items-center justify-end gap-2">
+                                        <button
+                                          onClick={() => {
+                                            setEditingMessageId(null);
+                                            setEditedContent('');
+                                          }}
+                                          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-subtle"
+                                          type="button"
+                                        >
+                                          Cancel
+                                        </button>
+                                        <button
+                                          onClick={() => handleEditMessage(msg)}
+                                          className="rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          type="button"
+                                          disabled={!editedContent.trim()}
+                                        >
+                                          Send
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                                  )}
+                                </div>
+                                {!isEditing && hoveredUserMessageId === userMessageId && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleCopyMessage(msg.content, userMessageId)}
+                                      className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-text-secondary hover:bg-surface-subtle hover:text-text-primary transition-colors"
+                                      aria-label="Copy"
+                                    >
+                                      {copiedMessageId === userMessageId ? (
+                                        <CheckIcon className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <CopyIcon className="h-3.5 w-3.5" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditingMessageId(userMessageId);
+                                        setEditedContent(msg.content);
+                                        setTimeout(() => {
+                                          if (editTextareaRef.current) {
+                                            const textarea = editTextareaRef.current;
+                                            textarea.focus();
+                                            const length = textarea.value.length;
+                                            textarea.setSelectionRange(length, length);
+                                          }
+                                        }, 0);
+                                      }}
+                                      className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-text-secondary hover:bg-surface-subtle hover:text-text-primary transition-colors"
+                                      aria-label="Edit prompt"
+                                    >
+                                      <EditIcon className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                                {userBranchCount > 1 && !isEditing && (
+                                  <div className="flex items-center gap-1 text-xs text-text-secondary">
+                                    <button
+                                      onClick={() => handleBranchChange(userBranchParentId, Math.max(0, selectedUserBranchIndex - 1))}
+                                      disabled={selectedUserBranchIndex === 0}
+                                      className="flex h-6 w-6 items-center justify-center rounded hover:bg-surface-subtle disabled:opacity-30 disabled:cursor-not-allowed"
+                                      aria-label="Previous prompt edit"
+                                    >
+                                      <ChevronLeftIcon className="h-4 w-4" />
+                                    </button>
+                                    <span className="px-1">{userBranchLabel}</span>
+                                    <button
+                                      onClick={() => handleBranchChange(userBranchParentId, Math.min(userBranchCount - 1, selectedUserBranchIndex + 1))}
+                                      disabled={selectedUserBranchIndex === userBranchCount - 1}
+                                      className="flex h-6 w-6 items-center justify-center rounded hover:bg-surface-subtle disabled:opacity-30 disabled:cursor-not-allowed"
+                                      aria-label="Next prompt edit"
+                                    >
+                                      <ChevronRightIcon className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white">
+                                {user.name[0].toUpperCase()}
+                              </div>
+                            </div>
+                          </div>
+                        );
+
+                        const assistantBranches = getAssistantBranches(userMessageId);
+                        const assistantBranchCount = assistantBranches.length;
+                        const activeAssistantBranchIndex = getSelectedBranchIndex(userMessageId, assistantBranchCount);
+
+                        const activeAssistantMsgId = assistantBranches[activeAssistantBranchIndex];
+                        const activeAssistantMsg = activeAssistantMsgId
+                          ? messages.find((m: any) => m.messageId === activeAssistantMsgId)
+                          : null;
+
+                        if (activeAssistantMsg) {
+                          const isRegeneratingThis = regeneratingForParentId === userMessageId;
+                          
+                          const displayContent = isRegeneratingThis && regenerateStreamedContent 
+                            ? regenerateStreamedContent 
+                            : activeAssistantMsg.content;
+                          
+                          // Extract artifact info from content if present (for fallback support)
+                          let artifactFromContent: { title: string; type: string } | null = null;
+                          if (typeof displayContent === 'string') {
+                            // First try to detect <artifact> tags (before backend processing)
+                            const artifactTagMatch = displayContent.match(/<(ant)?[Aa]rtifact\s+([^>]+)>/);
+                            if (artifactTagMatch) {
+                              const attributes = artifactTagMatch[2];
+                              const titleMatch = attributes.match(/title=["']([^"']+)["']/);
+                              const typeMatch = attributes.match(/type=["']([^"']+)["']/);
+                              if (titleMatch && typeMatch) {
+                                artifactFromContent = { title: titleMatch[1], type: typeMatch[1] };
+                              }
+                            } else {
+                              // Fallback: Detect [Artifact: Title] pattern (after backend processing)
+                              const artifactTextMatch = displayContent.match(/\[Artifact:\s*([^\]]+)\]/);
+                              if (artifactTextMatch) {
+                                artifactFromContent = { title: artifactTextMatch[1].trim(), type: 'document' };
+                              }
+                            }
+                          }
+                          
+                          // Process citations BEFORE ReactMarkdown - convert to HTML sup tags
+                          // Also remove [Artifact: ...] text and <artifact> tags since they're redundant with the clickable box
+                          const processedContent = typeof displayContent === 'string' 
+                            ? displayContent
+                                .replace(/\[Artifact:([^\]]+)\]/g, '') // Remove [Artifact: ...] text
+                                .replace(/<(ant)?[Aa]rtifact\s+[^>]+>/g, '') // Remove opening <artifact> tag
+                                .replace(/<\/(ant)?[Aa]rtifact>/g, '') // Remove closing </artifact> tag
+                                .replace(/\[(\d+)\]/g, (match, num) => 
+                                  `<sup class="citation-marker inline-flex items-center justify-center w-5 h-5 ml-0.5 text-[10px] font-semibold text-accent bg-accent/10 rounded cursor-pointer hover:bg-accent/20 transition-colors" data-citation="${num}" style="vertical-align: super; font-size: 0.7em;">${num}</sup>`
+                                )
+                                .trim() // Clean up any extra whitespace
+                            : displayContent;
+
+                          renderedPairs.push(
+                            <div key={`assistant-${userMessageId}-${activeAssistantMsg.messageId}`} className="flex flex-col gap-3">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-subtle text-sm">
+                                  🤖
+                                </div>
+                                <div className="text-xs uppercase tracking-wide text-text-secondary">
+                                  ChatZone
+                                </div>
+                              </div>
+                              <div 
+                                className="prose prose-sm max-w-none break-words text-text-primary"
+                                onClick={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  if (target.classList.contains('citation-marker')) {
+                                    e.preventDefault();
+                                    const citationNum = parseInt(target.getAttribute('data-citation') || '0');
+                                    if (citationNum && activeAssistantMsg.sources) {
+                                      const parsedSources = typeof activeAssistantMsg.sources === 'string' 
+                                        ? JSON.parse(activeAssistantMsg.sources) 
+                                        : activeAssistantMsg.sources;
+                                      setCurrentSources(parsedSources);
+                                      handleCitationClick(citationNum);
+                                    }
+                                  }
+                                }}
+                              >
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  rehypePlugins={[rehypeRaw]}
+                                  components={markdownComponents}
+                                >
+                                  {processedContent}
+                                </ReactMarkdown>
+                              </div>
+                              {isRegeneratingThis && regenerateStreamedContent && (
+                                <div className="text-sm text-accent">▌</div>
+                              )}
+                              
+                              {/* Artifact attachment - clickable box to reopen */}
+                              {(activeAssistantMsg.artifactId || artifactFromContent) && (
+                                <button
+                                  onClick={() => {
+                                    // If we have artifactId, fetch from database
+                                    if (activeAssistantMsg.artifactId && currentConversation?._id) {
+                                      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/artifacts/${activeAssistantMsg.artifactId}?conversationId=${currentConversation._id}`, {
+                                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                                      })
+                                        .then(res => res.json())
+                                        .then(data => {
+                                          if (data.artifact) {
+                                            setCurrentArtifact({
+                                              _id: data.artifact.rowKey,
+                                              type: data.artifact.type,
+                                              title: data.artifact.title,
+                                              language: data.artifact.language,
+                                              content: data.artifact.content,
+                                              version: data.artifact.version,
+                                              messageId: data.artifact.messageId,
+                                            });
+                                            setShowArtifactPanel(true);
+                                          }
+                                        })
+                                        .catch(err => console.error('Failed to load artifact:', err));
+                                    } else if (artifactFromContent && currentConversation?._id) {
+                                      // Fallback: Fetch artifact from conversation by title match
+                                      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${currentConversation._id}/artifacts`, {
+                                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                                      })
+                                        .then(res => res.json())
+                                        .then(data => {
+                                          if (data.artifacts && data.artifacts.length > 0) {
+                                            // Find artifact by title match
+                                            const matchingArtifact = data.artifacts.find((a: any) => 
+                                              a.title === artifactFromContent.title
+                                            );
+                                            if (matchingArtifact) {
+                                              setCurrentArtifact({
+                                                _id: matchingArtifact.rowKey || matchingArtifact._id,
+                                                type: matchingArtifact.type,
+                                                title: matchingArtifact.title,
+                                                language: matchingArtifact.language,
+                                                content: matchingArtifact.content,
+                                                version: matchingArtifact.version || 0,
+                                                messageId: matchingArtifact.messageId || activeAssistantMsg.messageId,
+                                              });
+                                              setShowArtifactPanel(true);
+                                            }
+                                          }
+                                        })
+                                        .catch(err => console.error('Failed to load artifacts:', err));
+                                    }
+                                  }}
+                                  className="mt-3 flex items-center gap-3 rounded-lg border border-border bg-surface hover:bg-surface-subtle px-4 py-3 transition-colors w-full text-left group"
+                                >
+                                  <svg className="w-5 h-5 text-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-text-primary truncate">
+                                      {artifactFromContent?.title || 'View Artifact'}
+                                    </div>
+                                    <div className="text-xs text-text-secondary">
+                                      {artifactFromContent?.type || 'Document'} • Click to view in split-screen
+                                    </div>
+                                  </div>
+                                  <svg className="w-4 h-4 text-text-secondary group-hover:text-accent transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </button>
+                              )}
+                              
+                              {!isRegeneratingThis && (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleCopyMessage(activeAssistantMsg.content, activeAssistantMsg.messageId)}
+                                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-subtle hover:text-text-primary transition-colors"
+                                    aria-label={copiedMessageId === activeAssistantMsg.messageId ? 'Copied' : 'Copy'}
+                                  >
+                                    {copiedMessageId === activeAssistantMsg.messageId ? (
+                                      <CheckIcon className="h-4 w-4" />
+                                    ) : (
+                                      <CopyIcon className="h-4 w-4" />
+                                    )}
+                                  </button>
+
+                                  {/* Sources button - shows when message has web search sources */}
+                                  {activeAssistantMsg.sources && (() => {
+                                    const parsedSources = typeof activeAssistantMsg.sources === 'string' 
+                                      ? JSON.parse(activeAssistantMsg.sources) 
+                                      : activeAssistantMsg.sources;
+                                    
+                                    return parsedSources && parsedSources.length > 0 && (
+                                      <button
+                                        onClick={() => {
+                                          setCurrentSources(parsedSources);
+                                          setShowSourcesPanel(true);
+                                        }}
+                                        className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-subtle hover:text-text-primary transition-colors"
+                                        aria-label="View sources"
+                                      >
+                                        <span>🔍</span>
+                                        <span>{parsedSources.length} {parsedSources.length === 1 ? 'source' : 'sources'}</span>
+                                      </button>
+                                    );
+                                  })()}
+
+                                  <div className="relative" ref={showRegenerateMenu === activeAssistantMsg.messageId ? regenerateMenuRef : null}>
+                                    <button
+                                      onClick={() => setShowRegenerateMenu(showRegenerateMenu === activeAssistantMsg.messageId ? null : activeAssistantMsg.messageId)}
+                                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-subtle hover:text-text-primary transition-colors"
+                                      aria-label="Regenerate"
+                                      disabled={regenerating}
+                                    >
+                                      <RefreshIcon className="h-4 w-4" />
+                                    </button>
+
+                                    {showRegenerateMenu === activeAssistantMsg.messageId && (
+                                      <div className="absolute left-0 top-full z-10 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-surface shadow-card">
+                                        <button
+                                          onClick={() => {
+                                            const msgIndex = messages.findIndex((m: any) => m.messageId === activeAssistantMsg.messageId);
+                                            handleRegenerateMessage(msgIndex, 'try_again');
+                                          }}
+                                          className="block w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-subtle"
+                                        >
+                                          Try again
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            const msgIndex = messages.findIndex((m: any) => m.messageId === activeAssistantMsg.messageId);
+                                            handleRegenerateMessage(msgIndex, 'add_details');
+                                          }}
+                                          className="block w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-subtle"
+                                        >
+                                          Add details
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            const msgIndex = messages.findIndex((m: any) => m.messageId === activeAssistantMsg.messageId);
+                                            handleRegenerateMessage(msgIndex, 'more_concise');
+                                          }}
+                                          className="block w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-subtle"
+                                        >
+                                          More concise
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            const msgIndex = messages.findIndex((m: any) => m.messageId === activeAssistantMsg.messageId);
+                                            handleRegenerateMessage(msgIndex, 'search_web');
+                                          }}
+                                          className="block w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-subtle"
+                                        >
+                                          Search the web
+                                        </button>
+                                        {activeAssistantMsg.artifactId && (
+                                          <button
+                                            onClick={() => {
+                                              const msgIndex = messages.findIndex((m: any) => m.messageId === activeAssistantMsg.messageId);
+                                              handleRegenerateMessage(msgIndex, 'answer_in_chat');
+                                            }}
+                                            className="block w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-subtle border-t border-border"
+                                          >
+                                            Answer in Chat
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {assistantBranchCount > 1 && (
+                                    <div className="flex items-center gap-1 ml-2 text-xs text-text-secondary">
+                                      <button
+                                        onClick={() => handleBranchChange(userMessageId, Math.max(0, activeAssistantBranchIndex - 1))}
+                                        disabled={activeAssistantBranchIndex === 0}
+                                        className="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-subtle disabled:opacity-30 disabled:cursor-not-allowed"
+                                        aria-label="Previous branch"
+                                      >
+                                        <ChevronLeftIcon className="h-4 w-4" />
+                                      </button>
+                                      <span className="px-1">{activeAssistantBranchIndex + 1} / {assistantBranchCount}</span>
+                                      <button
+                                        onClick={() => handleBranchChange(userMessageId, Math.min(assistantBranchCount - 1, activeAssistantBranchIndex + 1))}
+                                        disabled={activeAssistantBranchIndex === assistantBranchCount - 1}
+                                        className="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-subtle disabled:opacity-30 disabled:cursor-not-allowed"
+                                        aria-label="Next branch"
+                                      >
+                                        <ChevronRightIcon className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        i++;
+                      } else if (msg.role === 'assistant' && !msg.parentMessageId) {
+                        renderedPairs.push(
+                          <div key={`legacy-assistant-${i}`} className="flex flex-col gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-subtle text-sm">
+                                🤖
+                              </div>
+                              <div className="text-xs uppercase tracking-wide text-text-secondary">
+                                ChatZone
+                              </div>
+                            </div>
+                            <div className="prose prose-sm max-w-none break-words text-text-primary">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        );
+                        i++;
+                      } else {
+                        i++;
+                      }
+                    }
+
+                    return renderedPairs;
+                  })()}
+
+                  {streamedContent && (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-subtle text-sm">🤖</div>
+                        <div className="text-xs uppercase tracking-wide text-text-secondary">ChatZone</div>
+                      </div>
+                      <div className="prose prose-sm max-w-none break-words text-text-primary">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code({ node, className, children, ...props }: any) {
+                              const match = /language-(\w+)/.exec(className || '');
+                              const isInline = !match;
+                              return !isInline ? (
+                                <CodeBlock className={className}>
+                                  {String(children).replace(/\n$/, '')}
+                                </CodeBlock>
+                              ) : (
+                                <code className={`${className} rounded bg-surface px-1.5 py-0.5 text-xs`} {...props}>
+                                  {children}
+                                </code>
+                              );
+                            },
+                            table({ children, ...props }: any) {
+                              return <MarkdownTable {...props}>{children}</MarkdownTable>;
+                            },
+                            thead({ children }: any) {
+                              return <thead className="bg-surface-subtle sticky top-0 z-0">{children}</thead>;
+                            },
+                            tbody({ children }: any) {
+                              return <tbody>{children}</tbody>;
+                            },
+                            tr({ children, ...props }: any) {
+                              return (
+                                <tr className="border-b border-border last:border-0" {...props}>
+                                  {children}
+                                </tr>
+                              );
+                            },
+                            th({ children, ...props }: any) {
+                              return (
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-text-primary" {...props}>
+                                  {children}
+                                </th>
+                              );
+                            },
+                            td({ children, ...props }: any) {
+                              return (
+                                <td className="px-4 py-3 text-sm text-text-primary" {...props}>
+                                  {children}
+                                </td>
+                              );
+                            },
+                          }}
+                        >
+                          {streamedContent}
+                        </ReactMarkdown>
+                      </div>
+                      <div className="text-sm text-accent">▌</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pointer-events-none absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background to-transparent pt-12">
+                <div className="pointer-events-auto mx-auto flex w-full max-w-3xl flex-col items-center gap-2 px-3 pb-4">
+                  <UnifiedComposerBar
+                    message={message}
+                    setMessage={setMessage}
+                    streaming={streaming}
+                    textareaRef={textareaRef}
+                    attachedFiles={attachedFiles}
+                    calculateMemoryPercentage={calculateMemoryPercentage}
+                    getMemoryColor={getMemoryColor}
+                    selectedActions={selectedActions}
+                    setSelectedActions={setSelectedActions}
+                    showComposerMenu={showComposerMenu}
+                    setShowComposerMenu={setShowComposerMenu}
+                    composerMenuRef={composerMenuRef}
+                    handleFilesSelected={handleFilesSelected}
+                    handleRemoveFile={handleRemoveFile}
+                    handleSendMessage={handleSendMessage}
+                    handleStartDeepResearch={handleStartDeepResearch}
+                    user={user}
+                    totalMemoryUsed={totalMemoryUsed}
+                    activeResearchJob={activeResearchJob}
+                    router={router}
+                    designsApi={designsApi}
+                    presentationsApi={presentationsApi}
+                  />
+                  <div className="text-center text-xs text-text-secondary">Enter to send • Shift + Enter for a new line</div>
+                  
+                  {/* Deep Research Progress Panel */}
+                  {activeResearchJob && (
+                    <div className="mt-4 rounded-xl border border-border bg-surface p-4 shadow-sm">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full"></div>
+                          <h3 className="text-sm font-semibold text-text-primary">Deep Research in Progress</h3>
+                </div>
+                        <button
+                          onClick={handleCancelResearch}
+                          className="text-xs text-text-secondary hover:text-text-primary transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      
+                      <p className="text-sm text-text-secondary mb-3">{researchProgress}</p>
+                      
+                      {researchQueries.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-xs font-medium text-text-primary mb-2">Research Plan:</div>
+                          {searchProgress.map((item, index) => (
+                            <div key={index} className="flex items-center gap-2 text-xs">
+                              {item.status === 'complete' ? (
+                                <span className="text-emerald-500">✅</span>
+                              ) : item.status === 'searching' ? (
+                                <div className="animate-spin h-3 w-3 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                              ) : (
+                                <span className="text-text-secondary">⏳</span>
+                              )}
+                              <span className={`${item.status === 'complete' ? 'text-text-secondary line-through' : 'text-text-primary'}`}>
+                                {item.query}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {searchProgress.length > 0 && (
+                        <div className="mt-3">
+                          <div className="w-full bg-surface-subtle rounded-full h-2">
+                            <div 
+                              className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${(searchProgress.filter(s => s.status === 'complete').length / searchProgress.length) * 100}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center bg-background px-3">
+            <div className="mb-8 text-center">
+              <h1 className="text-3xl font-semibold text-text-primary">Where should we begin?</h1>
+            </div>
+            <div className="w-full max-w-3xl">
+              <div className="relative flex w-full flex-col rounded-3xl border border-border bg-surface shadow-lg">
+                {attachedFiles.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
+                    {attachedFiles.map((file) => (
+                      <FileChip
+                        key={file.id}
+                        fileName={file.file.name}
+                        fileSize={file.file.size}
+                        fileType={file.file.type}
+                        status={file.status}
+                        uploadProgress={file.uploadProgress}
+                        error={file.error}
+                        onRemove={() => handleRemoveFile(file.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {attachedFiles.length > 0 && (
+                  <div className="px-4 pb-1">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-xs text-text-secondary">
+                        Memory: {calculateMemoryPercentage().toFixed(0)}% full
+                      </span>
+                    </div>
+                    <div className="h-1 w-full overflow-hidden rounded-full bg-surface-subtle">
+                      <div
+                        className={`h-full transition-all duration-300 ${getMemoryColor()}`}
+                        style={{ width: `${calculateMemoryPercentage()}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className={`px-2 py-2 ${selectedActions.think || selectedActions.proSearch ? 'space-y-2' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    {!selectedActions.think && !selectedActions.proSearch && (
+                      <div className="relative" ref={composerMenuRef}>
+                        <button
+                          onClick={() => setShowComposerMenu(!showComposerMenu)}
+                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-text-secondary hover:bg-surface-subtle"
+                          aria-label="Open menu"
+                          type="button"
+                        >
+                          <PlusIcon className="h-5 w-5" />
+                        </button>
+
+                        {showComposerMenu && (
+                          <div className="absolute bottom-full left-0 mb-2 w-56 overflow-hidden rounded-xl border border-border bg-surface shadow-card" ref={composerMenuRef}>
+                            <FileUploadHandler
+                              onFilesSelected={handleFilesSelected}
+                              tier={user?.tier || 'free'}
+                              currentMemoryUsage={totalMemoryUsed}
+                              onActionSelected={(action) => {
+                                setSelectedActions(prev => ({
+                                  ...prev,
+                                  [action]: true
+                                }));
+                                setShowComposerMenu(false);
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <input
+                      type="text"
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                      placeholder="Message ChatZone"
+                      disabled={streaming}
+                      className="flex-1 bg-transparent px-2 py-1.5 text-base text-text-primary placeholder:text-text-secondary focus:outline-none"
+                    />
+
+                    <button
+                      onClick={() => handleSendMessage()}
+                      disabled={!message.trim() || streaming}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label="Send message"
+                      type="button"
+                    >
+                      <svg viewBox="0 0 20 20" className="h-5 w-5" fill="currentColor">
+                        <path d="M3 10l14-7-7 14-2-7-5-0z" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {(selectedActions.think || selectedActions.proSearch || selectedActions.createDoc) && (
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowComposerMenu(!showComposerMenu)}
+                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-text-secondary hover:bg-surface-subtle"
+                          aria-label="Open menu"
+                          type="button"
+                        >
+                          <PlusIcon className="h-5 w-5" />
+                        </button>
+
+                        {showComposerMenu && (
+                          <div className="absolute bottom-full left-0 mb-2 w-56 overflow-hidden rounded-xl border border-border bg-surface shadow-card" ref={composerMenuRef}>
+                            <FileUploadHandler
+                              onFilesSelected={handleFilesSelected}
+                              tier={user?.tier || 'free'}
+                              currentMemoryUsage={totalMemoryUsed}
+                              onActionSelected={(action) => {
+                                setSelectedActions(prev => ({
+                                  ...prev,
+                                  [action]: true
+                                }));
+                                setShowComposerMenu(false);
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedActions.think && (
+                        <div className="flex items-center gap-2 rounded-full bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent">
+                          <span>Think</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedActions(prev => ({ ...prev, think: false }))}
+                            className="ml-1 flex h-4 w-4 items-center justify-center rounded-full text-accent hover:bg-accent/20"
+                            aria-label="Remove Think"
+                          >
+                            <CloseIcon className="h-3 w-3" />
+                          </button>
+                    </div>
+                  )}
+
+                      {selectedActions.proSearch && (
+                        <div className="flex items-center gap-2 rounded-full bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-500">
+                          <span>Pro Search</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedActions(prev => ({ ...prev, proSearch: false }))}
+                            className="ml-1 flex h-4 w-4 items-center justify-center rounded-full text-blue-500 hover:bg-blue-500/20"
+                            aria-label="Remove Pro Search"
+                          >
+                            <CloseIcon className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+
+                      {selectedActions.createDoc && (
+                        <div className="flex items-center gap-2 rounded-full bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-500">
+                          <span>Create Doc</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedActions(prev => ({ ...prev, createDoc: false }))}
+                            className="ml-1 flex h-4 w-4 items-center justify-center rounded-full text-purple-500 hover:bg-purple-500/20"
+                            aria-label="Remove Create Doc"
+                          >
+                            <CloseIcon className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="mt-2 text-center text-xs text-text-secondary">Enter to send • Shift + Enter for a new line</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-background text-text-primary">
+        <div className="text-sm text-text-secondary">Loading chat...</div>
+      </div>
+    }>
+      <ChatPageContent />
+    </Suspense>
+  );
+}

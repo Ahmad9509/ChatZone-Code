@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Neumorphic Design Tokens - Light Mode (Soft Sand) */
+:root {
+  color-scheme: light;
+  /* Background Colors */
+  --color-bg: #F3F0EB;
+  --color-surface: #F3F0EB;
+  --color-surface-subtle: #F8F6F2;
+  --color-border: rgba(125, 108, 99, 0.15);
+  --color-shadow: rgba(0, 0, 0, 0.16);
+  --color-shadow-light: rgba(255, 255, 255, 0.9);
+  
+  /* Text Colors */
+  --color-text-primary: #2C2520;
+  --color-text-secondary: #7D6C63;
+  --color-text-muted: #A39084;
+  
+  /* Accent - Warm Terracotta */
+  --color-accent: #DE7B4D;
+  --color-accent-soft: rgba(222, 123, 77, 0.15);
+  --color-link: #DE7B4D;
+  
+  /* Scrollbar */
+  --color-scrollbar-thumb: rgba(125, 108, 99, 0.28);
+  --color-scrollbar-thumb-hover: rgba(125, 108, 99, 0.48);
+  
+  /* Neumorphic Shadows - Light Mode */
+  --shadow-soft-elevated: -4px -4px 8px var(--color-shadow-light), 4px 4px 12px var(--color-shadow);
+  --shadow-soft-pressed: inset -2px -2px 4px var(--color-shadow-light), inset 2px 2px 4px var(--color-shadow);
+  --shadow-soft-hover: -6px -6px 12px var(--color-shadow-light), 6px 6px 16px var(--color-shadow);
+}
+
+/* Neumorphic Design Tokens - Dark Mode */
+[data-theme="dark"] {
+  color-scheme: dark;
+  /* Background Colors */
+  --color-bg: #121014;
+  --color-surface: #18161B;
+  --color-surface-subtle: #1F1D23;
+  --color-border: rgba(138, 123, 115, 0.2);
+  --color-shadow: rgba(0, 0, 0, 0.80);
+  --color-shadow-light: rgba(255, 255, 255, 0.12);
+  
+  /* Text Colors */
+  --color-text-primary: #F7F1E9;
+  --color-text-secondary: #B6A59A;
+  --color-text-muted: #8A7B73;
+  
+  /* Accent - Deep Terracotta */
+  --color-accent: #F58A55;
+  --color-accent-soft: rgba(245, 138, 85, 0.18);
+  --color-link: #F58A55;
+  
+  /* Scrollbar */
+  --color-scrollbar-thumb: rgba(182, 165, 154, 0.28);
+  --color-scrollbar-thumb-hover: rgba(182, 165, 154, 0.48);
+  
+  /* Neumorphic Shadows - Dark Mode (Inverted) */
+  --shadow-soft-elevated: -3px -3px 6px var(--color-shadow-light), 4px 4px 12px var(--color-shadow);
+  --shadow-soft-pressed: inset -2px -2px 4px var(--color-shadow-light), inset 2px 2px 4px var(--color-shadow);
+  --shadow-soft-hover: -4px -4px 8px var(--color-shadow-light), 6px 6px 14px var(--color-shadow);
+}
+
+/* Base Styles */
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-primary, "Inter"), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+::selection {
+  background-color: var(--color-accent-soft);
+  color: var(--color-text-primary);
+}
+
+a {
+  color: var(--color-link);
+}
+
+a:hover {
+  color: var(--color-accent);
+}
+
+/* Scrollbar Styles */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar-thumb);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-thumb-hover);
+}
+
+/* Neumorphic Utility Classes */
+@layer utilities {
+  .soft-elevated {
+    box-shadow: var(--shadow-soft-elevated);
+  }
+  
+  .soft-pressed {
+    box-shadow: var(--shadow-soft-pressed);
+  }
+  
+  .soft-hover {
+    box-shadow: var(--shadow-soft-hover);
+  }
+  
+  .neumorphic-transition {
+    transition: box-shadow 0.15s ease-out, background-color 0.15s ease-out, transform 0.15s ease-out;
+  }
+}
+
+/* Animations */
+@keyframes fade-in-out {
+  0% { opacity: 0; transform: translateY(-4px); }
+  10% { opacity: 1; transform: translateY(0); }
+  90% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
+
+.animate-fade-in-out {
+  animation: fade-in-out 3s ease-in-out;
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+@keyframes message-appear {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-message-appear {
+  animation: message-appear 0.15s ease-out;
+}
