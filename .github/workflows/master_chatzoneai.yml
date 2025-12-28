@@ -30,11 +30,23 @@ jobs:
           npm run build --if-present
           npm run test --if-present
 
+      - name: Prepare deployment package
+        run: |
+          mkdir -p deploy
+          cp -r backend/dist deploy/ || true
+          cp backend/package.json deploy/
+          cp backend/package-lock.json deploy/ || true
+          cp backend/tsconfig.json deploy/ || true
+          cp backend/nodemon.json deploy/ || true
+          cp backend/chat.ts deploy/ || true
+          cp backend/env.sample deploy/ || true
+          cp backend/readme.md deploy/ || true
+
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: ./backend
+          path: deploy
 
   deploy:
     runs-on: ubuntu-latest
@@ -62,5 +74,5 @@ jobs:
         with:
           app-name: 'ChatZoneai'
           slot-name: 'Production'
-          package: ./backend
+          package: .
           
